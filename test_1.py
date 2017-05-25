@@ -4,11 +4,11 @@ import sys
 def my_cat(x):
     for i in x:
         try:
-            with open(i, "r") as file:
-                for j in file:
+            with open(i, "r") as folder:
+                for j in folder:
                         print j,
-        except:
-            print "No such file or directory : '%s'" % i
+        except IOError as e:
+            print "I/O error({0}): {1}".format(e.errno, e.strerror)
 
 
 if len(sys.argv) == 1:
