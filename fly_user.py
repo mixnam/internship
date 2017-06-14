@@ -1,42 +1,21 @@
 # -*- coding: utf-8 -*-
 import datetime
 import argparse
-
-
-class Scraper():
-    def __init__(self, departure, destination, outboundDate, returnDate=0):
-        self.departure = departure
-        self.destination = destination
-        self.outboundDate = outboundDate.strftime("%d-%m-%Y")
-        if not returnDate:
-            self.returnDate = outboundDate.strftime("%d-%m-%Y")
-        else:
-            self.returnDate = returnDate.strftime("%d-%m-%Y")
-
-    def print_info(self):
-        print "Departure: %s" % self.departure
-        print "Dectination: %s" % self.destination
-        print "Out bound date: %s" % self.outboundDate
-        print "Return date: %s" % self.returnDate
+from scrapper import Scraper
 
 
 def validation_date_str(date_str):
-    date_list = date_str.split("-")
-    date_value = "".join(date_list)
-    if len(date_value) != 8 or not date_value.isalnum():
+    try:
+        date = datetime.datetime.strptime(date_str, "%d-%m-%Y")
+        return date
+    except ValueError:
         msg = ("\nYou should specify date like this: DD-MM-YYYY " +
                "\nNot like this : {0}").format(date_str)
         raise argparse.ArgumentTypeError(msg)
-    else:
-        date = datetime.datetime.strptime(date_str, "%d-%m-%Y")
-        return date
 
 
 def validation_date(date_high, date_low=0):
-    if not date_low:
-        date_low = datetime.datetime.now()
-
-    if date_high >= date_low:
+    if date_high >= (date_low or datetime.datetime.now()):
         return True
     else:
         return False
@@ -92,8 +71,9 @@ def main():
                     args.outboundDate,
                     args.returnDate)
         s.print_info()
+        s.get_json()
     else:
-        print "Somthing wrong"
+        print "Something wrong"
 
 
 main()
