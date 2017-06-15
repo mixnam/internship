@@ -3,6 +3,11 @@ import requests
 from lxml import html
 
 
+class MyException(Exception):
+    def __init__(self, text):
+        print text
+
+
 class Scraper():
     def __init__(self, departure, destination, outboundDate, returnDate=0):
         self.departure = departure
@@ -13,7 +18,7 @@ class Scraper():
             self.oneway_url = 1
             self.returnDate = outboundDate.strftime("%Y-%m-%d")
         else:
-            self.oneway_ajax = "off"
+            self.oneway_ajax = ""
             self.oneway_url = 0
             self.returnDate = returnDate.strftime("%Y-%m-%d")
 
@@ -44,6 +49,13 @@ class Scraper():
                                                          self.outboundDate,
                                                          self.returnDate,
                                                          self.oneway_url)
+        self.json = self.get_json()
+        self.tree = self.make_tree()
+        self.outbound_vacancy = self.get_vacancy("outbound block")
+        self.return_vacancy = self.get_vacancy("return block")
+
+        self.print_results(self.outbound_vacancy)
+        self.print_results(self.return_vacancy)
 
     def print_info(self):
         print "Departure: %s" % self.departure
@@ -56,41 +68,62 @@ class Scraper():
             request_get = s.get(self.url)
             request_post = s.post(request_get.url, data=self.ajax_dict)
             if request_post.json():
-                main = request_post.json()["templates"]["main"]
-                self.tree = html.fromstring(main)
-                flight_tables = self.tree.get_element_by_id("flighttables")
-                tbody = flight_tables.xpath("//div[@class='outbound block']" +
-                                            "/div[@class='tablebackground']" +
-                                            "/table[@class='flighttable']" +
-                                            "/tbody")[0]
-                tr = tbody.getchildren()
-                self.vacancy_number = len(tr)/2
-                self.make_results()
+                return request_post.json()
             else:
-                print "No json"
+                raise MyException("No json")
 
-    def make_results(self):
-        self.results = {}
-        for i in range(self.vacancy_number):
-            price_comf = self.tree.get_element_by_id("priceLabelIdCOMFFi_" +
-                                                     str(i))
+    def make_results(self, path):
+        tr = path.getchildren()
+        count = len(tr)/2
+        results = {}
+        for i in range(count):
+            price_comf = path.get_element_by_id("priceLabelIdCOMFFi_" + str(i))
             price_comf = price_comf.xpath(".//div[@class='current']/span")[0]
 
-            price_prem = self.tree.get_element_by_id("priceLabelIdPREMFi_" +
-                                                     str(i))
+            price_prem = path.get_element_by_id("priceLabelIdPREMFi_" + str(i))
             price_prem = price_prem.xpath(".//div[@class='current']/span")[0]
 
-            departure = self.tree.get_element_by_id("flightDepartureFi_" +
-                                                    str(i))
+            departure = path.get_element_by_id("flightDepartureFi_" + str(i))
             departure_time = [j.text for j in departure.getchildren()]
             departure_time = "-".join(departure_time)
 
-            duration = self.tree.get_element_by_id("flightDurationFi_"+str(i))
+            duration = path.get_element_by_id("flightDurationFi_"+str(i))
 
-            self.results[i] = {"price comfort": price_comf.text,
-                               "price premium": price_prem.text,
-                               "departure": departure_time,
-                               "duration": duration.text}
+            results[i] = {"price comfort": price_comf.text,
+                          "price premium": price_prem.text,
+                          "departure": departure_time,
+                          "duration": duration.text}
+        return results
 
-        for i in self.results.keys():
-            print i, self.results[i]
+    def make_tree(self):
+        try:
+            main = self.json["templates"]["main"]
+            tree = html.fromstring(main)
+            return tree
+        except KeyError:
+            main = self.json["error"]
+            tree = html.fromstring(main)
+            error = tree.xpath("//div[@class='wrapper']/" +
+                               "div[@class='entry formCheck']/p")[0]
+            raise MyException(error.text)
+
+    def get_vacancy(self, block):
+        try:
+            flight_tables = self.tree.get_element_by_id("flighttables")
+            tbody = flight_tables.xpath(("//div[@class='{0}']" +
+                                         "/div[@class='tablebackground']" +
+                                         "/table[@class='flighttable']" +
+                                         "/tbody").format(block))[0]
+            return self.make_results(tbody)
+        except KeyError:
+                raise MyException("Не удалось найти рейсов " +
+                                  "на запрошенные даты")
+        except IndexError:
+                return None
+
+    def print_results(self, val):
+        if type(val) == dict:
+            for i in val.keys():
+                print i, val[i]
+        else:
+            pass

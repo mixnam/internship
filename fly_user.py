@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import datetime
 import argparse
-from scrapper import Scraper
+from scraper import Scraper
 
 
 def validation_date_str(date_str):
@@ -71,9 +71,9 @@ def main():
                     args.outboundDate,
                     args.returnDate)
         s.print_info()
-        s.get_json()
     else:
         print "Something wrong"
 
 
-main()
+if __name__ == "__main__":
+    main()
