@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import requests
+import itertools
 from lxml import html
 from decimal import Decimal
 
@@ -79,51 +80,46 @@ class Scraper(object):
 
     @try_KeyError
     def make_results(self, path):
+        self.currency = self.tree.get_element_by_id("flight-table-" +
+                                                    "header-price-" +
+                                                    "ECO_COMF").text
+
         tr = path.getchildren()
-        count = len(tr)/2
+        count = len(tr) / 2
         results = {}
         for i in range(count):
-            currency_comf = self.tree.get_element_by_id("flight-table-" +
-                                                        "header-price-" +
-                                                        "ECO_COMF")
-            currency_prem = self.tree.get_element_by_id("flight-table-" +
-                                                        "header-price-" +
-                                                        "ECO_PREM")
-
             price_comf = path.get_element_by_id("priceLabelIdCOMFFi_" + str(i))
             price_comf = price_comf.xpath(".//div[@class='current']/span")[0]
-            price_comf = (Decimal(price_comf.text.split(",")[0]),
-                          currency_comf)
+            price_comf = Decimal(price_comf.text.split(",")[0])
 
             price_prem = path.get_element_by_id("priceLabelIdPREMFi_" + str(i))
             price_prem = price_prem.xpath(".//div[@class='lowest']/span")[0]
-            price_prem = (Decimal(price_prem.text.split(",")[0]),
-                          currency_prem)
-
-            try:
-                currency_bus = self.tree.get_element_by_id("flight-table-" +
-                                                           "header-price-" +
-                                                           "BUS_FLEX")
-                price_bus = path.get_element_by_id("priceLabelIdFLEXFi_" +
-                                                   str(i))
-                price_bus = price_bus.xpath(".//div[@class='lowest']/span")[0]
-                price_bus = (Decimal(price_bus.text.split(",")[0]),
-                             currency_bus)
-            except KeyError:
-                price_bus = "нет доступных мест"
+            price_prem = Decimal(price_prem.text.split(",")[0])
 
             departure = path.get_element_by_id("flightDepartureFi_" + str(i))
             departure_time = [j.text for j in departure.getchildren()]
             departure_time = "-".join(departure_time)
 
-            duration = path.get_element_by_id("flightDurationFi_"+str(i))
+            duration = path.get_element_by_id("flightDurationFi_" + str(i))
             duration = duration.text
 
-            results[i] = {"price comfort": price_comf,
-                          "price premium": price_prem,
-                          "price busines": price_bus,
-                          "departure": departure_time,
-                          "duration": duration}
+            results[i + 1] = {"Light": {"price": price_comf,
+                                        "duration": duration,
+                                        "departure": departure_time},
+                              "Flex": {"price": price_prem,
+                                       "duration": duration,
+                                       "departure": departure_time}}
+
+            try:
+                price_bus = path.get_element_by_id("priceLabelIdFLEXFi_" +
+                                                   str(i))
+                price_bus = price_bus.xpath(".//div[@class='lowest']/span")[0]
+                price_bus = Decimal(price_bus.text.split(",")[0])
+                results[i + 1].setdefault("Busines", {"price": price_bus,
+                                                      "duration": duration,
+                                                      "departure": departure_time})
+            except KeyError:
+                pass
 
         return results
 
@@ -157,36 +153,63 @@ class Scraper(object):
         self.json = self.get_json()
         self.tree = self.make_tree()
 
-        outbound_vacancy = self.get_vacancy("outbound block")
-        return_vacancy = self.get_vacancy("return block")
+        self.outbound_vacancy = self.get_vacancy("outbound block")
+        self.return_vacancy = self.get_vacancy("return block")
 
-        self.print_results(outbound_vacancy)
-        self.print_results(return_vacancy)
-
-    # def sort_results(self, val, val2):
-    #     k = ["EL","EF","BS"]
-    #     k = ["-".join(i) for i in itertools.product(k,k)]
-    #     v = [0]*10
-    #     sorted_results = dict(zip(k,v))
-    #     if type(val) and type(val2) == dict:
-    #         for i in sorted_results.keys():
-    #             for j in val:
-    #                 for k in val2:
-    #                     sorted_results[i] = {j+k: }
-
-    def print_results(self, val):
-        if type(val) == dict:
-            for i in val.keys():
-                print ("{0} вариант:\nвремя вылета-прилета {1}, " +
-                       "длилетльность перелета - {2}\nцена " +
-                       "'econom light' - {3}" +
-                       "\nцена 'econom flex' - {4}" +
-                       "\nцена 'busines' - " +
-                       "{5}").format(i + 1,
-                                     val[i]["departure"],
-                                     val[i]["duration"],
-                                     str(val[i]["price comfort"][0]),
-                                     str(val[i]["price premium"][0]),
-                                     str(val[i]["price busines"][0]))
+        if self.return_vacancy is None:
+            self.print_results()
         else:
-            pass
+            self.print_mixed_results(self.sort_mixed_results(self.mix_results()))
+
+    def mix_results(self):
+        mixed_results = {}
+        vacancy_num = 1
+        for i, j in itertools.product(self.outbound_vacancy,
+                                      self.return_vacancy):
+            for k, l in itertools.product(self.outbound_vacancy[i],
+                                          self.return_vacancy[j]):
+                mixed_results[vacancy_num] = {"price": str(self.outbound_vacancy[i][k]["price"] +
+                                                           self.return_vacancy[j][l]["price"]),
+                                              "outbound duration": self.outbound_vacancy[i][k]["duration"],
+                                              "outbound departure": self.outbound_vacancy[i][k]["departure"],
+                                              "return duration": self.return_vacancy[j][l]["duration"],
+                                              "return departure": self.return_vacancy[j][l]["departure"],
+                                              "classes": "-".join([k, l])}
+                vacancy_num += 1
+        return mixed_results
+
+    def print_results(self):
+        val = self.outbound_vacancy
+        for i in val:
+            print ("Вариант номер {0}:\n\tвремя вылета-прилета {1}\n" +
+                   "\tдлилетльность перелета - {2}\n\tцена " +
+                   "'econom light' - {3}" +
+                   "\n\tцена 'econom flex' - " +
+                   "{4}").format(i,
+                                 val[i]["Light"]["departure"],
+                                 val[i]["Light"]["duration"],
+                                 str(val[i]["Light"]["price"]) + self.currency,
+                                 str(val[i]["Flex"]["price"]) + self.currency)
+            try:
+                print "\tцена 'busines'" + str(val[i]["Busines"]["price"]) + self.currency
+            except KeyError:
+                pass
+
+    def print_mixed_results(self, val):
+        for i in val:
+            print ("Вариант номер: {6}\n"
+                   "\tВремя вылета/прилета в приямом направлении: {0}\n" +
+                   "\tВремя в пути: {1}\n" +
+                   "\tВремя вылета/прилета в обратном напревлении: {2}\n" +
+                   "\tвремя в пути: {3}\n" +
+                   "\tКлассы : {4}\n" +
+                   "\tЦена: {5}").format(i[1]["outbound departure"],
+                                         i[1]["outbound duration"],
+                                         i[1]["return departure"],
+                                         i[1]["return duration"],
+                                         i[1]["classes"],
+                                         i[1]["price"] + self.currency,
+                                         i[0])
+
+    def sort_mixed_results(self, val):
+        return sorted(val.items(), key=lambda (k, v): v["price"])
