@@ -5,15 +5,6 @@ from lxml import html
 from decimal import Decimal
 
 
-def try_KeyError(f):
-    def wrap(self, *args):
-        try:
-            return f(self, *args)
-        except KeyError:
-            raise ScraperError("что-то не так в make_results")
-    return wrap
-
-
 class ScraperError(Exception):
     def __init__(self, value):
         self.value = value
@@ -32,8 +23,6 @@ class Scraper(object):
             self.oneway_bool_ajax = ""
             self.oneway_bool_url = 0
             self.return_date = return_date.strftime("%Y-%m-%d")
-
-        self.make_search()
 
     def print_info(self):
         print "Departure: %s" % self.departure
@@ -60,66 +49,51 @@ class Scraper(object):
                      "_ajax[requestParams][returnDestination]": "",
                      "_ajax[requestParams][returnDeparture]": ""}
 
-        url = ("https://www.flyniki.com/ru/booking/" +
-               "flight/vacancy.php?departure={0}" +
-               "&destination={1}&outboundDate={2}&returnDate={3}" +
-               "&oneway={4}&openDateOverview=0&adultCount=1&" +
-               "childCount=0&infantCount=0").format(self.departure,
-                                                    self.destination,
-                                                    self.outbound_date,
-                                                    self.return_date,
-                                                    self.oneway_bool_url)
+        url = "https://www.flyniki.com/ru/booking/" \
+              "flight/vacancy.php?departure={0}" \
+              "&destination={1}&outboundDate={2}&returnDate={3}" \
+              "&oneway={4}&openDateOverview=0&adultCount=1&" \
+              "childCount=0&infantCount=0".format(self.departure,
+                                                  self.destination,
+                                                  self.outbound_date,
+                                                  self.return_date,
+                                                  self.oneway_bool_url)
 
         with requests.Session() as s:
             request_get = s.get(url)
             request_post = s.post(request_get.url, data=ajax_dict)
-            if request_post.json():
-                return request_post.json()
-            else:
-                raise ScraperError("No json")
+            return request_post.json()
 
-    @try_KeyError
     def make_results(self, path):
-        self.currency = self.tree.get_element_by_id("flight-table-" +
-                                                    "header-price-" +
+        self.currency = self.tree.get_element_by_id("flight-table-" \
+                                                    "header-price-" \
                                                     "ECO_COMF").text
+        price_str = "//label[@id='priceLabelId{0}Fi_{1}']/" \
+                    "div[@class='lowest']/span/text()"
+        departure_str = "//span[@id='flightDepartureFi_{0}']/time/text()"
+        duration_str = "//span[@id='flightDurationFi_{0}']/text()"
 
         tr = path.getchildren()
         count = len(tr) / 2
         results = []
-        for i in range(count):
-            price_comf = path.get_element_by_id("priceLabelIdCOMFFi_" + str(i))
-            price_comf = price_comf.xpath(".//div[@class='current']/span")[0]
-            price_comf = Decimal(price_comf.text.split(",")[0])
+        classes = (("COMF", "Econom"), ("PREM", "Flex"), ("FLEX", "Business"))
 
-            price_prem = path.get_element_by_id("priceLabelIdPREMFi_" + str(i))
-            price_prem = price_prem.xpath(".//div[@class='lowest']/span")[0]
-            price_prem = Decimal(price_prem.text.split(",")[0])
+        for vacancy_num in range(count):
+            departure = path.xpath(departure_str.format(vacancy_num))
+            departure = "-".join(departure)
 
-            departure = path.get_element_by_id("flightDepartureFi_" + str(i))
-            departure_time = [j.text for j in departure.getchildren()]
-            departure_time = "-".join(departure_time)
+            duration = path.xpath(duration_str.format(vacancy_num))[0]
 
-            duration = path.get_element_by_id("flightDurationFi_" + str(i))
-            duration = duration.text
-
-            results.append({"Light": {"price": price_comf,
-                                      "duration": duration,
-                                      "departure": departure_time},
-                            "Flex": {"price": price_prem,
-                                     "duration": duration,
-                                     "departure": departure_time}})
-
-            try:
-                price_bus = path.get_element_by_id("priceLabelIdFLEXFi_" +
-                                                   str(i))
-                price_bus = price_bus.xpath(".//div[@class='lowest']/span")[0]
-                price_bus = Decimal(price_bus.text.split(",")[0])
-                results[i].setdefault("Busines", {"price": price_bus,
-                                                  "duration": duration,
-                                                  "departure": departure_time})
-            except KeyError:
-                pass
+            for class_str, class_val in classes:
+                try:
+                    price = path.xpath(price_str.format(class_str, vacancy_num))[0]
+                    price = Decimal(price.split(",")[0])
+                    results.append({"class": class_val,
+                                    "price": price,
+                                    "departure": departure,
+                                    "duration": duration})
+                except IndexError:
+                    pass
 
         return results
 
@@ -131,25 +105,27 @@ class Scraper(object):
         except KeyError:
             main = self.json["error"]
             tree = html.fromstring(main)
-            error = tree.xpath("//div[@class='wrapper']/" +
+            error = tree.xpath("//div[@class='wrapper']/" \
                                "div[@class='entry formCheck']/p")[0]
             raise ScraperError(error.text + "\n")
 
     def get_vacancy(self, block):
         try:
             flight_tables = self.tree.get_element_by_id("flighttables")
-            tbody = flight_tables.xpath(("//div[@class='{0}']" +
-                                         "/div[@class='tablebackground']" +
-                                         "/table[@class='flighttable']" +
-                                         "/tbody").format(block))[0]
+            tbody = flight_tables.xpath("//div[@class='{0}']" \
+                                        "/div[@class='tablebackground']" \
+                                        "/table[@class='flighttable']" \
+                                        "/tbody".format(block))[0]
             return self.make_results(tbody)
         except KeyError:
-            raise ScraperError("Не удалось найти рейсов " +
+            raise ScraperError("Не удалось найти рейсов " \
                                "на запрошенные даты\n")
         except IndexError:
             return None
 
     def make_search(self):
+        self.print_info()
+
         self.json = self.get_json()
         self.tree = self.make_tree()
 
@@ -159,60 +135,48 @@ class Scraper(object):
         if self.return_vacancy is None:
             self.print_results(self.sort_results(self.outbound_vacancy))
         else:
-            self.print_mixed_results(self.sort_mixed_results(self.mix_results()))
+            self.print_mixed_results(self.sort_results(self.mix_results()))
 
     def mix_results(self):
-        mixed_results = {}
-        vacancy_num = 1
-        for i, j in itertools.product(self.outbound_vacancy,
-                                      self.return_vacancy):
-            for k, l in itertools.product(i, j):
-                mixed_results[vacancy_num] = {"price": str(i[k]["price"] + j[l]["price"]),
-                                              "outbound duration": i[k]["duration"],
-                                              "outbound departure": i[k]["departure"],
-                                              "return duration": j[l]["duration"],
-                                              "return departure": j[l]["departure"],
-                                              "classes": "-".join([k, l])}
-                vacancy_num += 1
+        mixed_results = []
+        num = 1
+        for out, ret in itertools.product(self.outbound_vacancy,
+                                          self.return_vacancy):
+            mixed_results.append({"price": str(out["price"] + ret["price"]),
+                                  "outbound duration": out["duration"],
+                                  "outbound departure": out["departure"],
+                                  "return duration": ret["duration"],
+                                  "return departure": ret["departure"],
+                                  "classes": "-".join([out["class"], ret["class"]])})
+            num += 1
         return mixed_results
 
     def print_results(self, val):
-        vacancy_num = 1
-        for i in val:
-            print ("Вариант номер {0}:\n\tВремя вылета-прилета: {1}\n" +
-                   "\tДлилетльность перелета: {2}\n\tЦена: {3}\n" +
-                   "\tКласс: " +
-                   "{4}").format(vacancy_num,
-                                 i[1]["departure"],
-                                 i[1]["duration"],
-                                 str(i[1]["price"]) + self.currency,
-                                 i[0])
-            vacancy_num += 1
+        for j, i in enumerate(val, 1):
+            print "Вариант номер {0}:\n\tВремя вылета-прилета: {1}\n" \
+                  "\tДлилетльность перелета: {2}\n\tЦена: {3}\n" \
+                  "\tКласс: " \
+                  "{4}".format(j,
+                               i["departure"],
+                               i["duration"],
+                               str(i["price"]) + self.currency,
+                               i["class"])
 
     def print_mixed_results(self, val):
-        vacancy_num = 1
-        for i in val:
-            print ("Вариант номер: {6}\n"
-                   "\tВремя вылета/прилета в прямом направлении: {0}\n" +
-                   "\tВремя в пути: {1}\n" +
-                   "\tВремя вылета/прилета в обратном напревлении: {2}\n" +
-                   "\tвремя в пути: {3}\n" +
-                   "\tКлассы : {4}\n" +
-                   "\tЦена: {5}").format(i[1]["outbound departure"],
-                                         i[1]["outbound duration"],
-                                         i[1]["return departure"],
-                                         i[1]["return duration"],
-                                         i[1]["classes"],
-                                         i[1]["price"] + self.currency,
-                                         vacancy_num)
-            vacancy_num += 1
-
-    def sort_mixed_results(self, val):
-        return sorted(val.items(), key=lambda (k, v): float(v["price"]))
+        for j, i in enumerate(val, 1):
+            print "Вариант номер: {6}\n" \
+                  "\tВремя вылета/прилета в прямом направлении: {0}\n" \
+                  "\tВремя в пути: {1}\n" \
+                  "\tВремя вылета/прилета в обратном напревлении: {2}\n" \
+                  "\tвремя в пути: {3}\n" \
+                  "\tКлассы : {4}\n" \
+                  "\tЦена: {5}".format(i["outbound departure"],
+                                       i["outbound duration"],
+                                       i["return departure"],
+                                       i["return duration"],
+                                       i["classes"],
+                                       i["price"] + self.currency,
+                                       j)
 
     def sort_results(self, val):
-        val_list = []
-        for i in val:
-            for j in i.items():
-                val_list.append(j)
-        return sorted(val_list, key=lambda (k, v): float(v["price"]))
+        return sorted(val, key=lambda v: float(v["price"]))
