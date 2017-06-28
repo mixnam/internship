@@ -40,6 +40,8 @@ def validation_iata(iata_code):
 
 def check_dates(outbound_date, return_date=0):
     """Check the dates"""
+    date_limit = datetime.datetime.now() + datetime.timedelta(360)
+
     if not return_date:
         return_date = outbound_date
 
@@ -50,6 +52,10 @@ def check_dates(outbound_date, return_date=0):
     elif not date_is_valid(return_date, outbound_date):
         msg = "Your return date can't be before outbound date" \
               "\nPlease check that\n"
+        raise ValidationError(msg)
+    elif not date_is_valid(date_limit, (outbound_date and return_date)):
+        msg = "You can't specify outbound or return date latter than {0}\n" \
+              "Please check that\n".format(date_limit.strftime("%d-%m-%Y"))
         raise ValidationError(msg)
     else:
         return True
@@ -77,11 +83,11 @@ def main():
         args = parser.parse_args()
 
         if check_dates(args.outbound_date, args.return_date):
-            sess = Scraper(args.departure_IATA,
+            srap = Scraper(args.departure_IATA,
                            args.destination_IATA,
                            args.outbound_date,
                            args.return_date)
-            sess.make_search()
+            srap.make_search()
 
         return 0
     except (ScraperError, ValidationError) as err:
