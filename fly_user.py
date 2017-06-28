@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""main module"""
 import datetime
 import argparse
 import sys
@@ -6,11 +7,14 @@ from scraper import Scraper, ScraperError
 
 
 class ValidationError(Exception):
+    """My new validation exeption"""
     def __init__(self, value):
+        super(ValidationError, self).__init__()
         self.value = value
 
 
 def validation_date_str(date_str):
+    """Check the format of date-string"""
     try:
         date = datetime.datetime.strptime(date_str, "%d-%m-%Y")
         return date
@@ -21,21 +25,21 @@ def validation_date_str(date_str):
 
 
 def date_is_valid(date_high, date_low=0):
-    if date_high >= (date_low or datetime.datetime.now()):
-        return True
-    else:
-        return False
+    """Compare the date"""
+    return bool(date_high >= (date_low or datetime.datetime.now()))
 
 
-def validation_IATA(IATAcode):
-    if IATAcode.isalpha() and IATAcode.isupper() and len(IATAcode) == 3:
-        return IATAcode
+def validation_iata(iata_code):
+    """Check the format of IATA-string"""
+    if iata_code.isalpha() and iata_code.isupper() and len(iata_code) == 3:
+        return iata_code
     else:
         msg = "\nYou specify wrong IATA-code, it should be like this : 'AAA'\n"
         raise ValidationError(msg)
 
 
 def check_dates(outbound_date, return_date=0):
+    """Check the dates"""
     if not return_date:
         return_date = outbound_date
 
@@ -52,13 +56,14 @@ def check_dates(outbound_date, return_date=0):
 
 
 def main():
+    """main function"""
     try:
         parser = argparse.ArgumentParser()
         parser.add_argument("departure_IATA",
-                            type=validation_IATA,
+                            type=validation_iata,
                             help="Specify IATA-code of your departure airport")
         parser.add_argument("destination_IATA",
-                            type=validation_IATA,
+                            type=validation_iata,
                             help="Specify IATA of your destination airport")
         parser.add_argument("outbound_date",
                             type=validation_date_str,
@@ -72,11 +77,11 @@ def main():
         args = parser.parse_args()
 
         if check_dates(args.outbound_date, args.return_date):
-            s = Scraper(args.departure_IATA,
-                        args.destination_IATA,
-                        args.outbound_date,
-                        args.return_date)
-            s.make_search()
+            sess = Scraper(args.departure_IATA,
+                           args.destination_IATA,
+                           args.outbound_date,
+                           args.return_date)
+            sess.make_search()
 
         return 0
     except (ScraperError, ValidationError) as err:

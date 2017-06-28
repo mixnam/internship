@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
-import requests
+"""scraper module"""
 import itertools
-from lxml import html
 from decimal import Decimal
+import requests
+from lxml import html
 
 
 class ScraperError(Exception):
+    """My new scrapr exception"""
     def __init__(self, value):
+        super(ScraperError, self).__init__()
         self.value = value
 
 
 class Scraper(object):
+    """Scraper class"""
     def __init__(self, departure, destination, outbound_date, return_date=0):
         self.departure = departure
         self.destination = destination
@@ -23,14 +27,21 @@ class Scraper(object):
             self.oneway_bool_ajax = ""
             self.oneway_bool_url = 0
             self.return_date = return_date.strftime("%Y-%m-%d")
+        self.json = {}
+        self.currency = ""
+        self.outbound_vacancy = []
+        self.return_vacancy = []
+        self.tree = ""
 
     def print_info(self):
+        """Print information about flight"""
         print "Departure: %s" % self.departure
         print "Destination: %s" % self.destination
         print "Outbound date: %s" % self.outbound_date
         print "Return date: %s" % self.return_date
 
     def get_json(self):
+        """Get JSON from server"""
         ajax_dict = {"_ajax[templates][]": ["main",
                                             "priceoverview",
                                             "infos",
@@ -59,12 +70,13 @@ class Scraper(object):
                                                   self.return_date,
                                                   self.oneway_bool_url)
 
-        with requests.Session() as s:
-            request_get = s.get(url)
-            request_post = s.post(request_get.url, data=ajax_dict)
+        with requests.Session() as sess:
+            request_get = sess.get(url)
+            request_post = sess.post(request_get.url, data=ajax_dict)
             return request_post.json()
 
     def make_results(self, path):
+        """Take the path and get results from this path"""
         self.currency = self.tree.get_element_by_id("flight-table-" \
                                                     "header-price-" \
                                                     "ECO_COMF").text
@@ -73,8 +85,8 @@ class Scraper(object):
         departure_str = "//span[@id='flightDepartureFi_{0}']/time/text()"
         duration_str = "//span[@id='flightDurationFi_{0}']/text()"
 
-        tr = path.getchildren()
-        count = len(tr) / 2
+        tr_tags = path.getchildren()
+        count = len(tr_tags) / 2
         results = []
         classes = (("COMF", "Econom"), ("PREM", "Flex"), ("FLEX", "Business"))
 
@@ -98,6 +110,7 @@ class Scraper(object):
         return results
 
     def make_tree(self):
+        """Make tne XML tree from JSON"""
         try:
             main = self.json["templates"]["main"]
             tree = html.fromstring(main)
@@ -110,6 +123,7 @@ class Scraper(object):
             raise ScraperError(error.text + "\n")
 
     def get_vacancy(self, block):
+        """Get vacancy from specifed block"""
         try:
             flight_tables = self.tree.get_element_by_id("flighttables")
             tbody = flight_tables.xpath("//div[@class='{0}']" \
@@ -124,6 +138,7 @@ class Scraper(object):
             return None
 
     def make_search(self):
+        """Main funcion, which make search"""
         self.print_info()
 
         self.json = self.get_json()
@@ -138,6 +153,7 @@ class Scraper(object):
             self.print_mixed_results(self.sort_results(self.mix_results()))
 
     def mix_results(self):
+        """Make all possible options of flight"""
         mixed_results = []
         num = 1
         for out, ret in itertools.product(self.outbound_vacancy,
@@ -152,6 +168,7 @@ class Scraper(object):
         return mixed_results
 
     def print_results(self, val):
+        """Print oneway results"""
         for j, i in enumerate(val, 1):
             print "Вариант номер {0}:\n\tВремя вылета-прилета: {1}\n" \
                   "\tДлилетльность перелета: {2}\n\tЦена: {3}\n" \
@@ -163,6 +180,7 @@ class Scraper(object):
                                i["class"])
 
     def print_mixed_results(self, val):
+        """Print all relutls, with returns"""
         for j, i in enumerate(val, 1):
             print "Вариант номер: {6}\n" \
                   "\tВремя вылета/прилета в прямом направлении: {0}\n" \
@@ -179,4 +197,5 @@ class Scraper(object):
                                        j)
 
     def sort_results(self, val):
+        """Get list of dicts and sort this list with key-['price']"""
         return sorted(val, key=lambda v: float(v["price"]))
